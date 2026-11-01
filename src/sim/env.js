@@ -34,6 +34,18 @@ import {
   FORGE_COST,
   FORGE_HP,
   FORGE_DAMAGE,
+  PREDATORS,
+  BEAR_HP,
+  BEAR_REGEN,
+  BEAR_REGEN_DELAY,
+  BEAR_SPEED,
+  BEAR_ATTACK_RANGE,
+  BEAR_DAMAGE,
+  BEAR_COOLDOWN,
+  BEAR_WANDER,
+  BEAR_RETURN,
+  BEAR_BASE_CLEAR,
+  BEAR_BAND,
   REWARD,
   OBS_DIM,
   OBS_SELF,
@@ -43,6 +55,8 @@ import {
   OBS_ALLY_F,
   OBS_ENEMY_K,
   OBS_ENEMY_F,
+  OBS_BEAR_K,
+  OBS_BEAR_F,
   OBS_TERR,
   OBS_BASE,
   OBS_ECON,
@@ -58,7 +72,8 @@ const ID_OFFSET = OBS - OBS_ID;
 const RES_OFFSET = OBS_SELF;
 const ALLY_OFFSET = RES_OFFSET + RESOURCE_TYPES.length * OBS_RES_K * OBS_RES_F;
 const ENEMY_OFFSET = ALLY_OFFSET + OBS_ALLY_K * OBS_ALLY_F;
-const TERR_OFFSET = ENEMY_OFFSET + OBS_ENEMY_K * OBS_ENEMY_F;
+const BEAR_OFFSET = ENEMY_OFFSET + OBS_ENEMY_K * OBS_ENEMY_F;
+const TERR_OFFSET = BEAR_OFFSET + OBS_BEAR_K * OBS_BEAR_F;
 const BASE_OFFSET = TERR_OFFSET + OBS_TERR;
 const ECON_OFFSET = ID_OFFSET - OBS_ECON;
 
@@ -82,6 +97,9 @@ function newTeamStats() {
     forgeSpent: 0,
     generatedFood: 0,
     towerDamage: 0,
+    bearDamage: 0,
+    bearRepelled: 0,
+    preyLost: 0,
   };
 }
 
@@ -101,6 +119,7 @@ export class BattleEnv {
     this.agents = [[], []];
     this.resources = [];
     this.structures = [];
+    this.predators = [];
     this.nextStructureId = 1;
     this.influence = [null, null];
     this.owner = null;
@@ -123,9 +142,11 @@ export class BattleEnv {
     this.lastRewardParts = [blankParts(), blankParts()];
     this.teamStats = [newTeamStats(), newTeamStats()];
     this.structures = [];
+    this.predators = [];
     this.nextStructureId = 1;
     this._generateMap(this.rng);
     this._spawnAgents(this.rng);
+    this._spawnPredators(this.rng);
     this._initTerritory();
     this.obsCache = [null, null];
     this.stateCache = [null, null];
@@ -236,6 +257,231 @@ export class BattleEnv {
           deathType: null,
           deathTime: 0,
         });
+      }
+    }
+  }
+
+  _distToBases(x, z) {
+    return Math.min(
+      Math.hypot(x - this.bases[0].x, z - this.bases[0].z),
+      Math.hypot(x - this.bases[1].x, z - this.bases[1].z),
+    );
+  }
+
+  /* ---------------- predators (neutral NPCs) ---------------- */
+
+  // A roaming point inside the band around the central ruin, clear of both
+  // keeps and of the other bears.
+  _bearRoamPoint(rng, avoid = []) {
+    for (let attempt = 0; attempt < 240; attempt++) {
+      const angle = rng.range(0, Math.PI * 2);
+      const radius = rng.range(BEAR_BAND[0], BEAR_BAND[1]);
+      const x = clamp(HALF + Math.cos(angle) * radius, 2.6, WORLD - 2.6);
+      const z = clamp(HALF + Math.sin(angle) * radius, 2.6, WORLD - 2.6);
+      if (this._distToBases(x, z) < BEAR_BASE_CLEAR) continue;
+      let clash = false;
+      for (const b of avoid) {
+        if (Math.hypot(b.x - x, b.z - z) < 5.2) {
+          clash = true;
+          break;
+        }
+      }
+      if (clash) continue;
+      return { x, z };
+    }
+    return { x: HALF + 6.5, z: HALF - 6.5 };
+  }
+
+  _spawnPredators(rng) {
+    this.predators = [];
+    for (let i = 0; i < PREDATORS; i++) {
+      const start = this._bearRoamPoint(rng, this.predators);
+      this.predators.push({
+        id: i,
+        x: start.x,
+        z: start.z,
+        hp: BEAR_HP,
+        maxHp: BEAR_HP,
+        alive: true,
+        cooldown: 0,
+        fx: 0,
+        fz: 1,
+        walk: rng.range(0, Math.PI * 2),
+        moving: 0,
+        maulTimer: 0,
+        hunting: false,
+        lastHit: 0,
+        regrow: 0,
+        wanderTarget: this._bearRoamPoint(rng, [...this.predators, start]),
+        wanderTimer: rng.range(0, BEAR_WANDER),
+      });
+    }
+  }
+
+  _nearestPrey(bear) {
+    let best = null;
+    let bestD = VISION * VISION;
+    for (let team = 0; team < TEAMS; team++) {
+      for (const a of this.agents[team]) {
+        if (!a.alive) continue;
+        const dx = a.x - bear.x;
+        const dz = a.z - bear.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 < bestD) {
+          bestD = d2;
+          best = a;
+        }
+      }
+    }
+    return best;
+  }
+
+  _nearestBear(agent, range = VISION) {
+    let best = null;
+    let bestD = range * range;
+    for (const b of this.predators) {
+      if (!b.alive) continue;
+      const dx = b.x - agent.x;
+      const dz = b.z - agent.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < bestD) {
+        bestD = d2;
+        best = b;
+      }
+    }
+    return best;
+  }
+
+  // Whatever the warband can swing at: an enemy legionary or a bear. Both are
+  // legal attack targets, and whichever is nearer inside vision wins.
+  _nearestThreat(agent) {
+    const enemy = this._nearestEnemy(agent);
+    const bear = this._nearestBear(agent);
+    if (!enemy && !bear) return null;
+    if (!bear) return { kind: 'agent', target: enemy };
+    if (!enemy) return { kind: 'bear', target: bear };
+    const ed = (enemy.x - agent.x) ** 2 + (enemy.z - agent.z) ** 2;
+    const bd = (bear.x - agent.x) ** 2 + (bear.z - agent.z) ** 2;
+    return bd < ed ? { kind: 'bear', target: bear } : { kind: 'agent', target: enemy };
+  }
+
+  _moveBear(bear, dx, dz, mult = 1) {
+    const nx = bear.x + dx * BEAR_SPEED * mult * DT;
+    const nz = bear.z + dz * BEAR_SPEED * mult * DT;
+    // Bears prowle at the edge of the keeps; they never camp a spawn stack.
+    if (this._distToBases(nx, nz) < BEAR_BASE_CLEAR) {
+      bear.moving = 0;
+      return;
+    }
+    bear.x = clamp(nx, 0.8, WORLD - 0.8);
+    bear.z = clamp(nz, 0.8, WORLD - 0.8);
+    bear.fx = dx;
+    bear.fz = dz;
+    bear.walk += DT * 3.6 * mult;
+    bear.moving = mult;
+  }
+
+  _maul(agent, dmg, acc, bear) {
+    agent.hp -= dmg;
+    agent.lastHit = this.time;
+    this._emit({
+      type: 'maul',
+      id: bear.id,
+      x: bear.x,
+      z: bear.z,
+      tx: agent.x,
+      tz: agent.z,
+      target: agent.team,
+      dmg,
+    });
+    if (agent.hp <= 0) this._killAgent(agent, null, acc, -1, 'predator');
+  }
+
+  // Legionaries and watchtowers can answer a bear. Bringing it to 0 HP drives
+  // it off the field for BEAR_RETURN seconds rather than killing it, so the
+  // hazard stays live and cannot be farmed for reward.
+  _damageBear(bear, dmg, team, acc) {
+    if (!bear.alive) return;
+    bear.hp -= dmg;
+    bear.lastHit = this.time;
+    acc.bearDamage[team] += dmg;
+    this.teamStats[team].bearDamage += dmg;
+    this._emit({ type: 'bearHit', id: bear.id, x: bear.x, z: bear.z, team, dmg });
+    if (bear.hp <= 0) {
+      bear.hp = 0;
+      bear.alive = false;
+      bear.regrow = BEAR_RETURN;
+      bear.moving = 0;
+      bear.hunting = false;
+      this.teamStats[team].bearRepelled += 1;
+      acc.bearRepelled[team] += 1;
+      this._emit({ type: 'bearRepelled', id: bear.id, team, x: bear.x, z: bear.z });
+    }
+  }
+
+  _updatePredators(acc) {
+    const living = (b) => b.alive && b !== undefined;
+    for (const b of this.predators) {
+      if (!b.alive) {
+        b.regrow -= DT;
+        if (b.regrow > 0) continue;
+        b.regrow = 0;
+        b.hp = b.maxHp;
+        b.cooldown = 0;
+        b.maulTimer = 0;
+        b.alive = true;
+        const others = this.predators.filter((p) => p !== b && living(p));
+        const point = this._bearRoamPoint(this.rng, others);
+        b.x = point.x;
+        b.z = point.z;
+        b.wanderTarget = this._bearRoamPoint(this.rng, [...others, point]);
+        b.wanderTimer = BEAR_WANDER;
+        this._emit({ type: 'bearReturn', id: b.id, x: b.x, z: b.z });
+        continue;
+      }
+
+      b.cooldown = Math.max(0, b.cooldown - DT);
+      b.maulTimer = Math.max(0, b.maulTimer - DT);
+
+      const prey = this._nearestPrey(b);
+      if (prey) {
+        b.hunting = true;
+        const dx = prey.x - b.x;
+        const dz = prey.z - b.z;
+        const dist = Math.hypot(dx, dz) || 1;
+        b.fx = dx / dist;
+        b.fz = dz / dist;
+        b.wanderTimer = BEAR_WANDER;
+        if (dist <= BEAR_ATTACK_RANGE) {
+          b.moving = 0;
+          if (b.cooldown <= 0) {
+            b.cooldown = BEAR_COOLDOWN;
+            b.maulTimer = 0.45;
+            this._maul(prey, BEAR_DAMAGE, acc, b);
+          }
+        } else {
+          this._moveBear(b, dx / dist, dz / dist);
+        }
+      } else {
+        b.hunting = false;
+        b.wanderTimer -= DT;
+        const t = b.wanderTarget;
+        const dx = t.x - b.x;
+        const dz = t.z - b.z;
+        const dist = Math.hypot(dx, dz);
+        if (b.wanderTimer <= 0 || dist < 1.1) {
+          b.wanderTarget = this._bearRoamPoint(this.rng, this.predators.filter((p) => p !== b && living(p)));
+          b.wanderTimer = BEAR_WANDER;
+          b.moving = 0;
+        } else if (dist > 0.001) {
+          this._moveBear(b, dx / dist, dz / dist, 0.8);
+        } else {
+          b.moving = 0;
+        }
+      }
+
+      if (b.hp < b.maxHp && this.time - b.lastHit > BEAR_REGEN_DELAY) {
+        b.hp = Math.min(b.maxHp, b.hp + BEAR_REGEN * DT);
       }
     }
   }
@@ -357,10 +603,10 @@ export class BattleEnv {
         }
       }
     } else if (action === ACTION_ATTACK) {
-      const target = this._nearestEnemy(agent);
-      if (target) {
-        const dx = target.x - agent.x;
-        const dz = target.z - agent.z;
+      const threat = this._nearestThreat(agent);
+      if (threat) {
+        const dx = threat.target.x - agent.x;
+        const dz = threat.target.z - agent.z;
         const dist = Math.hypot(dx, dz) || 1;
         agent.fx = dx / dist;
         agent.fz = dz / dist;
@@ -374,11 +620,12 @@ export class BattleEnv {
               type: 'swing',
               x: agent.x,
               z: agent.z,
-              tx: target.x,
-              tz: target.z,
+              tx: threat.target.x,
+              tz: threat.target.z,
               team: agent.team,
             });
-            this._damageAgent(target, dmg, agent.team, acc, agent, true);
+            if (threat.kind === 'bear') this._damageBear(threat.target, dmg, agent.team, acc);
+            else this._damageAgent(threat.target, dmg, agent.team, acc, agent, true);
           }
         } else {
           this._move(agent, dx / dist, dz / dist);
@@ -476,16 +723,17 @@ export class BattleEnv {
     agent.fz = dz;
   }
 
-  _killAgent(target, killer, acc, killerTeam = killer ? killer.team : -1) {
+  _killAgent(target, killer, acc, killerTeam = killer ? killer.team : -1, deathType = 'combat') {
     if (!target.alive) return;
     target.alive = false;
     target.hp = 0;
     target.deathTime = this.time;
-    target.deathType = 'combat';
+    target.deathType = deathType;
     target.action = ACTION_IDLE;
     const targetTeam = this.teamStats[target.team];
     targetTeam.deaths += 1;
     acc.deaths[target.team] += 1;
+    if (deathType === 'predator') targetTeam.preyLost += 1;
     if (killer && killer.alive) killer.kills += 1;
     if (killerTeam >= 0) {
       this.teamStats[killerTeam].kills += 1;
@@ -497,6 +745,7 @@ export class BattleEnv {
       z: target.z,
       team: target.team,
       killer: killerTeam,
+      predator: deathType === 'predator',
     });
   }
 
@@ -577,6 +826,7 @@ export class BattleEnv {
         s.cooldown = Math.max(0, s.cooldown - DT);
         if (s.cooldown > 0) continue;
         let target = null;
+        let targetIsBear = false;
         let bestD = meta.range * meta.range;
         for (const e of this.agents[1 - s.team]) {
           if (!e.alive) continue;
@@ -586,6 +836,19 @@ export class BattleEnv {
           if (d2 < bestD) {
             bestD = d2;
             target = e;
+            targetIsBear = false;
+          }
+        }
+        // A bear prowling the watchtower's range is an intruder too.
+        for (const b of this.predators) {
+          if (!b.alive) continue;
+          const dx = b.x - s.x;
+          const dz = b.z - s.z;
+          const d2 = dx * dx + dz * dz;
+          if (d2 < bestD) {
+            bestD = d2;
+            target = b;
+            targetIsBear = true;
           }
         }
         if (target) {
@@ -600,9 +863,10 @@ export class BattleEnv {
             tx: target.x,
             tz: target.z,
             dmg,
-            target: target.team,
+            target: targetIsBear ? -1 : target.team,
           });
-          this._damageAgent(target, dmg, s.team, acc, null, false);
+          if (targetIsBear) this._damageBear(target, dmg, s.team, acc);
+          else this._damageAgent(target, dmg, s.team, acc, null, false);
         }
       } else {
         const gain = meta.food * DT;
@@ -730,7 +994,9 @@ export class BattleEnv {
     const combat =
       acc.damage[team] * W.damage +
       acc.kills[team] * W.kill +
-      acc.deaths[team] * W.death;
+      acc.deaths[team] * W.death +
+      acc.bearDamage[team] * W.bearDamage +
+      acc.bearRepelled[team] * W.bearRepel;
     const survival =
       alive * W.survival * DT -
       acc.starving[team] * W.starving * DT +
@@ -778,6 +1044,8 @@ export class BattleEnv {
       builds: [0, 0],
       forged: [0, 0],
       campFood: [0, 0],
+      bearDamage: [0, 0],
+      bearRepelled: [0, 0],
     };
 
     for (let team = 0; team < TEAMS; team++) {
@@ -788,6 +1056,7 @@ export class BattleEnv {
       }
     }
 
+    this._updatePredators(acc);
     this._autoForge(acc);
     this._applyUpkeep(acc);
     this._updateStructures(acc);
@@ -956,6 +1225,39 @@ export class BattleEnv {
         }
       }
 
+      let bo = o + BEAR_OFFSET;
+      const bearBest = [null, null];
+      const bearD = [Infinity, Infinity];
+      for (const b of this.predators) {
+        if (!b.alive) continue;
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        const d2 = dx * dx + dz * dz;
+        if (d2 > VISION * VISION) continue;
+        for (let k = 0; k < OBS_BEAR_K; k++) {
+          if (d2 < bearD[k]) {
+            for (let j = OBS_BEAR_K - 1; j > k; j--) {
+              bearD[j] = bearD[j - 1];
+              bearBest[j] = bearBest[j - 1];
+            }
+            bearD[k] = d2;
+            bearBest[k] = b;
+            break;
+          }
+        }
+      }
+      for (let k = 0; k < OBS_BEAR_K; k++) {
+        const b = bearBest[k];
+        if (b) {
+          out[bo++] = clamp((b.x - a.x) * invV, -1.5, 1.5);
+          out[bo++] = clamp((b.z - a.z) * invV, -1.5, 1.5);
+          out[bo++] = Math.sqrt(bearD[k]) * invV;
+          out[bo++] = b.hp / b.maxHp;
+        } else {
+          bo += OBS_BEAR_F;
+        }
+      }
+
       let ownLocal = 0;
       let enemyLocal = 0;
       const acx = Math.floor(a.x / CELL);
@@ -996,7 +1298,7 @@ export class BattleEnv {
       if (!a.alive) continue;
       out.fill(1, o, o + ACTION_HARVEST);
       out[o + ACTION_HARVEST] = this._nearestResource(a) ? 1 : 0;
-      out[o + ACTION_ATTACK] = this._nearestEnemy(a) ? 1 : 0;
+      out[o + ACTION_ATTACK] = this._nearestThreat(a) ? 1 : 0;
       out[o + ACTION_BUILD_TOWER] = this._canBuild(a, 'tower') ? 1 : 0;
       out[o + ACTION_BUILD_CAMP] = this._canBuild(a, 'camp') ? 1 : 0;
     }
@@ -1047,6 +1349,12 @@ export class BattleEnv {
     out[o++] = this.teamStats[1 - team].forge / MAX_FORGE;
     out[o++] = this._structureCount(team) / MAX_STRUCTURES_PER_TEAM;
     out[o++] = this._structureCount(1 - team) / MAX_STRUCTURES_PER_TEAM;
+    for (const b of this.predators) {
+      out[o++] = b.alive ? 1 : 0;
+      out[o++] = b.x / WORLD;
+      out[o++] = b.z / WORLD;
+      out[o++] = b.hp / b.maxHp;
+    }
     out[o++] = Math.sin(this.time * 0.13);
     out[o++] = Math.cos(this.time * 0.13);
     return out;
@@ -1069,11 +1377,35 @@ export class BattleEnv {
       builds: stats.builds,
       generatedFood: stats.generatedFood,
       towerDamage: stats.towerDamage,
+      bearDamage: stats.bearDamage,
+      bearRepelled: stats.bearRepelled,
+      preyLost: stats.preyLost,
       structures: {
         tower: this._structureCount(team, 'tower'),
         camp: this._structureCount(team, 'camp'),
         total: this._structureCount(team),
       },
+    };
+  }
+
+  // Field hazard summary for the spectator HUD: bears are neutral, so they are
+  // reported once for the whole field rather than per faction.
+  predatorSnapshot() {
+    return {
+      total: this.predators.length,
+      alive: this.predators.reduce((n, b) => n + (b.alive ? 1 : 0), 0),
+      preyLost: this.teamStats[0].preyLost + this.teamStats[1].preyLost,
+      repelled: this.teamStats[0].bearRepelled + this.teamStats[1].bearRepelled,
+      bears: this.predators.map((b) => ({
+        id: b.id,
+        alive: b.alive,
+        hunting: b.hunting,
+        hp: b.hp,
+        maxHp: b.maxHp,
+        x: b.x,
+        z: b.z,
+        returns: b.alive ? 0 : b.regrow,
+      })),
     };
   }
 }

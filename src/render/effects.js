@@ -208,14 +208,16 @@ export class Effects {
     }
   }
 
-  slash(x, z, angle, team) {
+  slash(x, z, angle, team, color = null) {
     const slot = this.slashes.find((s) => s.life <= 0) || this.slashes[0];
     slot.life = slot.maxLife;
     slot.mesh.visible = true;
     slot.mesh.position.set(x, 0.75 + this.rng() * 0.2, z);
     slot.mesh.rotation.y = -angle + this.rng() * 0.4;
     slot.mesh.scale.setScalar(0.78 + this.rng() * 0.25);
-    slot.mesh.material.color.copy(TEAM_COLORS[team] || TEAM_COLORS[0]);
+    // Neutral events (a bear maul) pass an explicit colour instead of a team.
+    if (color) slot.mesh.material.color.set(color);
+    else slot.mesh.material.color.copy(TEAM_COLORS[team] || TEAM_COLORS[0]);
     slot.mesh.material.opacity = 0.85;
   }
 

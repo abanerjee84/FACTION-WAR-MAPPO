@@ -9,7 +9,7 @@ recording.
 ![Aetherfield live match — Azure Compact (✦) vs Ember Dominion (✧), territory overlay on, training live](docs/assets/hero.gif)
 
 > The GIF is captured from the live page via a Chrome DevTools Protocol screencast at the pace it was
-> recorded (50 frames over 5.9 s). The match is running at 4× speed in this clip.
+> recorded (45 frames over 4.95 s). The match is running at 4× speed in this clip.
 > A lossless version is available as [`docs/assets/demo.mp4`](docs/assets/demo.mp4) — GitHub does not
 > inline-play video in markdown, so it is a link.
 
@@ -38,6 +38,8 @@ critic sees the whole battlefield state while actors see only what a single legi
 - **Life support**: HP 100, energy 100, energy drains 1.35/s. Eating costs 3 energy and restores 33;
   below 34 energy the agent starves and loses 4 HP/s. Idle agents regen 0.3 HP/s.
 - **Combat**: 16 base damage, 0.75 s cooldown, attack range 1.55.
+- **Field hazard**: two bears roam the mid-field as scripted neutral NPCs. They prey on whichever
+  legionary they can see — Azure or Ember alike — and a warband can drive them off. See below.
 - **Territory**: structures project influence continuously; the HUD percentages are the share of the
   grid held by each faction. Capturing cells and holding them are both rewarded.
 - **Victory**: a match ends when one faction has no living legionaries. Both wiped = *Mutual Ruin*.
@@ -77,6 +79,28 @@ upgrades automatically, and every living legionary gains health and damage:
 So gold is a long-term military investment, and the policy has to decide between feeding soldiers now
 and arming them later.
 
+### Field hazard — bears
+
+Bears are the one thing on the field nobody trains. They are scripted NPCs that roam the band around
+the central ruin, stalk the nearest legionary inside the same 7-unit vision the agents use, and maul
+it at close range. They are attackable, so hunting one is a real decision: it costs time and health
+that could be spent on the enemy.
+
+| Parameter | Value |
+| --- | --- |
+| Bears on the field | 2 (`PREDATORS`; one bear is a one-line change) |
+| Health | 300, regenerating 2.0/s after 4 s without damage |
+| Speed | 1.85 units/s — slower than a fleeing legionary (2.55) |
+| Maul | 24 damage every 1.2 s at 1.9 units |
+| Roam band | 4.5–13.5 units around the ruin, new target every 11 s |
+| Keep clearance | 11.5 units — bears never enter a fortress footprint or a spawn stack |
+| Driven off | reaching 0 HP removes the bear for 42 s, then it returns at full health |
+
+Bringing a bear to zero *drives it off* rather than killing it, so the hazard stays live and cannot be
+farmed for reward. Legionaries swing at bears through the same attack action, and watchtowers treat a
+bear in range as an intruder. A bear can wipe a faction, so matches can end by predation; predation is
+scored as a death, not as a faction kill.
+
 ---
 
 ## Action space (13 actions, masked)
@@ -91,7 +115,8 @@ and arming them later.
 | 12 | Build a Field Camp |
 
 Illegal actions are masked out of the softmax, so an agent cannot waste its policy on a build it cannot
-afford or an attack with no target in range.
+afford or an attack with no target in range. The attack mask counts a bear as a threat: it is legal
+whenever an enemy legionary *or* a bear is inside vision, and whichever is nearer takes the swing.
 
 ### Reward shaping
 
@@ -107,17 +132,21 @@ decisive mid-field fight plus the territory it secures:
 | Territory hold | +0.012 | Starve death | −1.2 |
 | Survival | +0.06 | Build structure | +0.9 |
 | Camp food | +0.05 | Forge upgrade | +1.6 |
+| Bear damage dealt | +0.022 | Bear driven off | +1.4 |
 | Victory | +10 | Defeat | −10 |
+
+Predation reuses the death weight: a legionary taken by a bear is a death with no killer credited to
+either faction, and bear rewards land in the same combat bucket as faction kills.
 
 ---
 
 ## Observations and MAPPO
 
-- **Per-agent observation**: `OBS_DIM = 109` — self state (6), visible resource nodes (3 × 3 × 5),
-  allies (4 × 4), enemies (5 × 5), territory (3), base (3), team economy (5), own agent id (6).
-- **Global state for the critic**: `STATE_DIM = 95` — both rosters (72), stockpiles, lifetime gathered,
+- **Per-agent observation**: `OBS_DIM = 117` — self state (6), visible resource nodes (3 × 3 × 5),
+  allies (4 × 4), enemies (5 × 5), bears (2 × 4), territory (3), base (3), team economy (5), own agent id (6).
+- **Global state for the critic**: `STATE_DIM = 103` — both rosters (72), stockpiles, lifetime gathered,
   territory shares, alive counts, remaining resources, living nodes, forge tiers + structure counts,
-  time phase.
+  bears (2 × 4), time phase.
 - **Policy**: MLP with a 64-unit hidden layer, trained by hand-written forward/backward passes with
   Adam. Softmax is masked; the PPO surrogate is clipped, and the value loss is clipped to the same
   window.
@@ -149,15 +178,17 @@ continues.
 
 ## HUD tour
 
-Low camera angle over the mid-field:
+Low camera angle over the mid-field — a bear is mauling Azure legionaries on the left (amber `-24`
+labels), and a second bear prowls past an Ember camp on the right:
 
 ![Legionaries, resource nodes and structures in the mid-field](docs/assets/closeup.png)
 
-Vision overlay — the radius an agent actually perceives:
+Vision overlay — the radius an agent actually perceives (amber rings are the bears'):
 
 ![Vision radii over the field](docs/assets/vision.png)
 
-Faction panel — stockpiles, territory share, kills, forge tier, structures, per-legionary roster:
+Faction panel — stockpiles, territory share, kills, forge tier, structures, per-legionary roster, and
+the field-hazard strip for bears on the field, legionaries taken, and bears driven off:
 
 ![Faction council panel](docs/assets/council.png)
 
@@ -168,7 +199,7 @@ decomposition bars:
 
 End of match (Ember Dominion wiped out):
 
-![Victory overlay — Azure Compact Triumphs](docs/assets/victory.png)
+![Victory overlay — Azure Compact Triumphs, with five legionaries taken by bears and one bear still on the field](docs/assets/victory.png)
 
 ---
 
@@ -177,7 +208,7 @@ End of match (Ember Dominion wiped out):
 ```bash
 npm install
 npm run dev        # http://127.0.0.1:5173
-npm test           # 15 node:test assertions on economy, masks, PPO
+npm test           # 21 node:test assertions on economy, masks, predators, PPO
 ```
 
 On Windows, `START.bat` installs dependencies on first run and launches the server.
@@ -218,18 +249,18 @@ to keep the dark scene and the bloom readable; `docs/assets/raw/` is git-ignored
 LICENSE               MIT (see LICENSE)
 index.html            HUD markup (arena canvas, faction council, telemetry, overlays)
 src/main.js           spectator match, boot gate, victory flow, worker wiring, speed/toggle controls
-src/render/arena.js   Three.js scene, OrbitControls, territory and vision overlays
+src/render/arena.js   Three.js scene, OrbitControls, territory and vision overlays, legionary + bear models
 src/render/effects.js hit sparks, bloom, muzzle effects
 src/render/charts.js  reward / policy / value line charts
 src/sim/config.js     every environment and MAPPO constant (the tables above)
-src/sim/env.js        BattleEnv: movement, harvesting, combat, structures, territory, rewards, masks
+src/sim/env.js        BattleEnv: movement, harvesting, combat, bears, structures, territory, rewards, masks
 src/sim/policy.js     Actor/Critic MLPs, manual backprop, Adam, masked softmax, clipped PPO losses
 src/sim/mappo.js      rollout, GAE with terminal masks, alive-masked advantage norm, PPO epochs
 src/sim/worker.js     4 worlds, per-iteration weight transfer, 12 ms scheduling
 src/sim/rng.js        deterministic seeded RNG (same seed → same battlefield)
 scripts/capture.mjs   Playwright + CDP screencast capture
 scripts/media.mjs     GIF / MP4 / still encoding pipeline
-tests/                economy + PPO invariants (node --test)
+tests/                economy, predator, and PPO invariants (node --test)
 docs/assets/          shipped README media
 ```
 

@@ -12,6 +12,7 @@ import {
   MAX_HP,
   MAX_ENERGY,
   MAX_FORGE,
+  PREDATORS,
   RESOURCE_META,
   STRUCTURE_META,
 } from '../sim/config.js';
@@ -29,6 +30,15 @@ const TEAM_GLOW = [0.35, 0.35];
 const STONE = '#7b7562';
 const STONE_DARK = '#514d40';
 const WOOD = '#6d4d2f';
+
+// Neutral hazard palette: bears are neither faction, so they read amber-brown.
+const BEAR_FUR = '#6b5236';
+const BEAR_FUR_DARK = '#4c3a26';
+const BEAR_SNOUT = '#8b7250';
+const BEAR_NOSE = '#2a211a';
+const BEAR_CLAW = '#e6dcc2';
+const BEAR_MARKER = '#e2a44a';
+const BEAR_BLOOD = '#f2a76b';
 
 const worldOf = (x, z) => [x - HALF, z - HALF];
 
@@ -270,6 +280,7 @@ export class ArenaView {
     this._buildResourceGroup();
     this._buildStructureGroup();
     this._buildUnits();
+    this._buildBears();
 
     this.effects = new Effects(this.scene, this.camera);
 
@@ -1801,6 +1812,326 @@ export class ArenaView {
     }
   }
 
+  /* ------------------------------ predators ------------------------------ */
+  // Bears are neutral NPCs driven by the environment, so the view only mirrors
+  // them: gait from the bear's walk phase, a lunge while it mauls, and a
+  // collapse when a warband drives it off the field.
+
+  _buildBears() {
+    this.bearGeo = {
+      torso: new THREE.SphereGeometry(0.42, 12, 9).scale(1.05, 0.72, 1.35),
+      hump: new THREE.SphereGeometry(0.34, 11, 8).scale(1.05, 0.66, 1.05),
+      rump: new THREE.SphereGeometry(0.3, 10, 8).scale(1.0, 0.78, 1.0),
+      neck: new THREE.CylinderGeometry(0.1, 0.14, 0.18, 7),
+      head: new THREE.SphereGeometry(0.2, 11, 9).scale(1.0, 0.85, 1.05),
+      snout: new THREE.CylinderGeometry(0.11, 0.14, 0.3, 7),
+      nose: new THREE.SphereGeometry(0.065, 8, 6),
+      ear: new THREE.SphereGeometry(0.085, 8, 6),
+      eye: new THREE.SphereGeometry(0.035, 6, 5),
+      leg: new THREE.CylinderGeometry(0.1, 0.115, 0.46, 7).translate(0, -0.23, 0),
+      paw: new THREE.SphereGeometry(0.12, 8, 6).scale(1.0, 0.6, 1.25),
+      claw: new THREE.ConeGeometry(0.032, 0.1, 4),
+      tail: new THREE.ConeGeometry(0.06, 0.16, 5),
+    };
+    this.bearMats = {
+      fur: new THREE.MeshStandardMaterial({ color: BEAR_FUR, roughness: 0.95 }),
+      furDark: new THREE.MeshStandardMaterial({ color: BEAR_FUR_DARK, roughness: 0.95 }),
+      snout: new THREE.MeshStandardMaterial({ color: BEAR_SNOUT, roughness: 0.85 }),
+      nose: new THREE.MeshStandardMaterial({ color: BEAR_NOSE, roughness: 0.6 }),
+      claw: new THREE.MeshStandardMaterial({ color: BEAR_CLAW, roughness: 0.5 }),
+      eye: new THREE.MeshStandardMaterial({ color: '#1b1710', roughness: 0.3 }),
+    };
+    this.bears = [];
+    for (let i = 0; i < PREDATORS; i++) this.bears.push(this._makeBear(i));
+  }
+
+  _makeBear(i) {
+    const mats = this.bearMats;
+    const g = this.bearGeo;
+    const root = new THREE.Group();
+    const body = new THREE.Group();
+    root.add(body);
+
+    const torso = new THREE.Mesh(g.torso, mats.fur);
+    torso.position.set(0, 0.62, 0);
+    body.add(torso);
+
+    const hump = new THREE.Mesh(g.hump, mats.fur);
+    hump.position.set(0, 0.86, -0.16);
+    body.add(hump);
+
+    const rump = new THREE.Mesh(g.rump, mats.furDark);
+    rump.position.set(0, 0.56, -0.62);
+    body.add(rump);
+
+    const tail = new THREE.Mesh(g.tail, mats.furDark);
+    tail.position.set(0, 0.52, -0.88);
+    tail.rotation.x = -0.9;
+    body.add(tail);
+
+    const neck = new THREE.Mesh(g.neck, mats.fur);
+    neck.position.set(0, 0.8, 0.42);
+    neck.rotation.x = -Math.PI / 2 + 0.35;
+    body.add(neck);
+
+    const head = new THREE.Group();
+    head.add(new THREE.Mesh(g.head, mats.fur));
+    const snout = new THREE.Mesh(g.snout, mats.snout);
+    snout.rotation.x = Math.PI / 2;
+    snout.position.set(0, -0.03, 0.19);
+    head.add(snout);
+    const nose = new THREE.Mesh(g.nose, mats.nose);
+    nose.position.set(0, -0.01, 0.35);
+    head.add(nose);
+    const earL = new THREE.Mesh(g.ear, mats.furDark);
+    earL.position.set(-0.17, 0.14, -0.02);
+    head.add(earL);
+    const earR = earL.clone();
+    earR.position.x = 0.17;
+    head.add(earR);
+    const eyeL = new THREE.Mesh(g.eye, mats.eye);
+    eyeL.position.set(-0.1, 0.05, 0.17);
+    head.add(eyeL);
+    const eyeR = eyeL.clone();
+    eyeR.position.x = 0.1;
+    head.add(eyeR);
+    head.position.set(0, 0.88, 0.6);
+    body.add(head);
+
+    const legs = [];
+    for (let k = 0; k < 4; k++) {
+      const side = k % 2 === 0 ? -1 : 1;
+      const front = k < 2;
+      const leg = new THREE.Group();
+      leg.position.set(side * 0.24, 0.52, front ? 0.44 : -0.44);
+      leg.add(new THREE.Mesh(g.leg, mats.furDark));
+      const paw = new THREE.Mesh(g.paw, mats.fur);
+      paw.position.set(0, -0.44, 0.05);
+      leg.add(paw);
+      for (let c = 0; c < 3; c++) {
+        const claw = new THREE.Mesh(g.claw, mats.claw);
+        claw.position.set((c - 1) * 0.06, -0.46, 0.17);
+        claw.rotation.x = Math.PI / 2 - 0.35;
+        leg.add(claw);
+      }
+      body.add(leg);
+      legs.push(leg);
+    }
+
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.5, 0.62, 28),
+      new THREE.MeshBasicMaterial({
+        color: BEAR_MARKER,
+        transparent: true,
+        opacity: 0.34,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.035;
+    root.add(ring);
+
+    const visionRing = new THREE.Mesh(
+      new THREE.RingGeometry(VISION - 0.05, VISION, 64),
+      new THREE.MeshBasicMaterial({
+        color: BEAR_MARKER,
+        transparent: true,
+        opacity: 0.05,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        depthTest: false,
+      }),
+    );
+    visionRing.rotation.x = -Math.PI / 2;
+    visionRing.position.y = 0.02;
+    visionRing.visible = false;
+    visionRing.renderOrder = 3;
+    root.add(visionRing);
+
+    // Health plate, drawn on canvas like the legionary bars but in the neutral
+    // amber palette so a bear never reads as a faction unit.
+    const canvas = makeCanvas(160, 22);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const health = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: tex,
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    );
+    health.scale.set(1.1, 0.15, 1);
+    health.position.y = 1.5;
+    health.renderOrder = 12;
+    health.visible = false;
+    root.add(health);
+
+    root.traverse((o) => {
+      if (o.isMesh && o !== ring && o !== visionRing) {
+        o.castShadow = true;
+      }
+    });
+
+    const bear = this.env.predators[i];
+    const [wx, wz] = worldOf(bear.x, bear.z);
+    root.position.set(wx, 0, wz);
+    root.visible = bear.alive;
+    this.scene.add(root);
+
+    return {
+      id: i,
+      root,
+      body,
+      head,
+      legs,
+      ring,
+      visionRing,
+      health,
+      canvas,
+      ctx: canvas.getContext('2d'),
+      tex,
+      facing: 0,
+      walk: Math.random() * 10,
+      goneT: 0,
+      goneHandled: false,
+      maulT: 0,
+      lastHp: -1,
+    };
+  }
+
+  _drawBearHealth(view, bear) {
+    const hp = Math.max(0, Math.round(bear.hp));
+    if (hp === view.lastHp) return;
+    view.lastHp = hp;
+    const ctx = view.ctx;
+    const w = view.canvas.width;
+    const h = view.canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(8, 11, 9, 0.72)';
+    ctx.fillRect(2, 2, w - 4, 13);
+    ctx.strokeStyle = 'rgba(232, 216, 180, 0.24)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(2.5, 2.5, w - 5, 12);
+    const hpw = (w - 8) * Math.min(1, hp / bear.maxHp);
+    const grd = ctx.createLinearGradient(4, 0, w - 4, 0);
+    grd.addColorStop(0, '#8a5a26');
+    grd.addColorStop(1, BEAR_MARKER);
+    ctx.fillStyle = grd;
+    ctx.fillRect(4, 4, hpw, 9);
+    ctx.fillStyle = 'rgba(0,0,0,0.22)';
+    for (let i = 1; i < 5; i++) ctx.fillRect(4 + (i * (w - 8)) / 5, 4, 1, 9);
+    view.tex.needsUpdate = true;
+  }
+
+  _resetBearViews() {
+    for (const view of this.bears) {
+      const bear = this.env.predators[view.id];
+      const [wx, wz] = worldOf(bear.x, bear.z);
+      view.root.visible = bear.alive;
+      view.root.position.set(wx, 0, wz);
+      view.root.position.y = 0;
+      view.body.rotation.set(0, 0, 0);
+      view.body.position.set(0, 0, 0);
+      view.head.rotation.set(0, 0, 0);
+      for (const leg of view.legs) leg.rotation.set(0, 0, 0);
+      view.ring.visible = bear.alive;
+      view.health.visible = false;
+      view.goneT = 0;
+      view.goneHandled = !bear.alive;
+      view.maulT = 0;
+      view.facing = Math.atan2(bear.fx, bear.fz);
+      view.lastHp = -1;
+      this._drawBearHealth(view, bear);
+    }
+  }
+
+  _syncBears(dt) {
+    for (const view of this.bears) {
+      const bear = this.env.predators[view.id];
+      const [tx, tz] = worldOf(bear.x, bear.z);
+
+      if (!bear.alive) {
+        if (!view.goneHandled) {
+          view.goneHandled = true;
+          view.goneT = 0;
+          view.health.visible = false;
+          view.ring.visible = false;
+          view.visionRing.visible = false;
+        }
+        view.goneT += dt;
+        const fall = Math.min(1, view.goneT / 0.8);
+        const eased = fall * fall * (3 - 2 * fall);
+        view.body.rotation.z = -1.35 * eased;
+        view.body.position.y = -0.24 * eased;
+        view.root.position.y = -0.35 * Math.max(0, (view.goneT - 1.6) / 1.2);
+        if (view.goneT > 2.8) view.root.visible = false;
+        continue;
+      }
+
+      if (view.goneHandled) {
+        // A driven-off bear has come back from the tree line.
+        view.goneHandled = false;
+        view.goneT = 0;
+        view.root.visible = true;
+        view.root.position.y = 0;
+        view.body.rotation.set(0, 0, 0);
+        view.body.position.set(0, 0, 0);
+        view.ring.visible = true;
+        view.lastHp = -1;
+      }
+
+      const smooth = 1 - Math.exp(-12 * dt);
+      view.root.position.x += (tx - view.root.position.x) * smooth;
+      view.root.position.z += (tz - view.root.position.z) * smooth;
+
+      const desired = Math.atan2(bear.fx, bear.fz);
+      let diff = desired - view.facing;
+      diff = ((diff + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+      view.facing += diff * Math.min(1, dt * 7);
+      view.root.rotation.y = view.facing;
+
+      const moving = bear.moving > 0;
+      view.walk += dt * (moving ? 7.4 : 1.5);
+      const amp = moving ? 1 : 0.25;
+      const stride = Math.sin(view.walk) * 0.5 * amp;
+      view.legs[0].rotation.x = stride;
+      view.legs[1].rotation.x = -stride;
+      view.legs[2].rotation.x = -stride;
+      view.legs[3].rotation.x = stride;
+
+      view.maulT = bear.maulTimer > 0 ? bear.maulTimer : Math.max(0, view.maulT - dt);
+      if (view.maulT > 0) {
+        const t = 1 - view.maulT / 0.45;
+        const lunge = Math.sin(t * Math.PI);
+        view.body.rotation.x = -lunge * 0.34;
+        view.body.position.z = lunge * 0.22;
+        view.head.rotation.y = Math.sin(t * Math.PI * 2) * 0.35;
+        view.legs[0].rotation.x -= lunge * 0.55;
+        view.legs[1].rotation.x -= lunge * 0.55;
+      } else {
+        view.body.rotation.x *= 0.86;
+        view.body.position.z *= 0.86;
+        view.head.rotation.y *= 0.86;
+        view.body.position.y = Math.sin(this.time * 1.4 + view.id * 2.1) * 0.02;
+        view.body.rotation.z = Math.sin(this.time * 1.1 + view.id) * 0.015;
+      }
+
+      // The marker ring pulses while a bear is stalking, so the hazard is
+      // legible even from the wide camera.
+      view.ring.material.opacity = bear.hunting
+        ? 0.42 + Math.sin(this.time * 7) * 0.2
+        : 0.3;
+
+      const showBar = bear.hp < bear.maxHp - 0.5;
+      if (view.health.visible !== showBar) view.health.visible = showBar;
+      this._drawBearHealth(view, bear);
+    }
+  }
+
   /* -------------------------------- events -------------------------------- */
 
   handleEvents(events) {
@@ -1822,7 +2153,8 @@ export class ArenaView {
         const [tx, tz] = worldOf(ev.tx ?? ev.x, ev.tz ?? ev.z);
         this.effects.beam(x, 3.15, z, tx, 1.1, tz, TEAM_COLORS[ev.team], 0.18);
         this.effects.burst(tx, 1.0, tz, '#ffd08a', 8, 1.6, 0.5, -3.5);
-        this.effects.addLabel(tx, 1.9, tz, `-${Math.round(ev.dmg)}`, ev.team === 0 ? '#9fd0ff' : '#ff9b86', 0.9);
+        const label = ev.target === -1 ? BEAR_BLOOD : ev.target === 0 ? '#9fd0ff' : '#ff9b86';
+        this.effects.addLabel(tx, 1.9, tz, `-${Math.round(ev.dmg)}`, label, 0.9);
         this.effects.glow(tx, 1.0, tz, '#ffc37e', 1.3, 0.22);
       } else if (ev.type === 'forge') {
         const roman = ['', 'I', 'II', 'III', 'IV'][ev.level] || String(ev.level);
@@ -1851,9 +2183,30 @@ export class ArenaView {
         const angle = Math.atan2(tx - x, tz - z);
         this.effects.slash(x, z, angle, ev.team);
       } else if (ev.type === 'death') {
-        this.effects.burst(x, 1.0, z, ev.starve ? '#e0ad3f' : TEAM_COLORS[ev.team], 22, 2.2, 1.1, -4);
-        this.effects.ring(x, z, ev.starve ? '#e0ad3f' : TEAM_COLORS[ev.team], 0.8, 0.9);
-        this.effects.glow(x, 1.2, z, ev.starve ? '#e0ad3f' : TEAM_COLORS[ev.team], 2.4, 0.4);
+        const color = ev.starve ? '#e0ad3f' : ev.predator ? BEAR_BLOOD : TEAM_COLORS[ev.team];
+        this.effects.burst(x, 1.0, z, color, 22, 2.2, 1.1, -4);
+        this.effects.ring(x, z, color, 0.8, 0.9);
+        this.effects.glow(x, 1.2, z, color, 2.4, 0.4);
+        if (ev.predator) this.effects.addLabel(x, 2.1, z, 'TAKEN BY A BEAR', BEAR_BLOOD, 1.05);
+      } else if (ev.type === 'maul') {
+        const [tx, tz] = worldOf(ev.tx ?? ev.x, ev.tz ?? ev.z);
+        const angle = Math.atan2(tx - x, tz - z);
+        this.effects.slash(x, z, angle, -1, BEAR_MARKER);
+        this.effects.burst(tx, 0.95, tz, BEAR_BLOOD, 12, 2.0, 0.6, -3.2);
+        this.effects.addLabel(tx, 1.9, tz, `-${Math.round(ev.dmg)}`, BEAR_BLOOD, 0.95);
+        this.effects.glow(tx, 1.0, tz, BEAR_BLOOD, 1.6, 0.25);
+      } else if (ev.type === 'bearHit') {
+        this.effects.burst(x, 1.0, z, '#ffd8a0', 6, 1.3, 0.45, -3);
+        this.effects.addLabel(x, 2.0, z, `-${Math.round(ev.dmg)}`, TEAM_COLORS[ev.team], 0.8);
+      } else if (ev.type === 'bearRepelled') {
+        this.effects.ring(x, z, BEAR_MARKER, 2.3, 0.9);
+        this.effects.burst(x, 1.0, z, BEAR_MARKER, 24, 2.4, 1.1, -3);
+        this.effects.glow(x, 1.2, z, BEAR_MARKER, 3.4, 0.5);
+        this.effects.addLabel(x, 2.8, z, 'BEAR DRIVEN OFF', '#f6c67f', 1.25);
+      } else if (ev.type === 'bearReturn') {
+        this.effects.ring(x, z, BEAR_MARKER, 1.7, 0.8);
+        this.effects.burst(x, 0.9, z, BEAR_MARKER, 12, 1.6, 0.8, -2);
+        this.effects.addLabel(x, 2.2, z, 'BEAR RETURNS', '#e2a44a', 1.1);
       } else if (ev.type === 'starve') {
         this.effects.burst(x, 1.0, z, '#e0ad3f', 8, 0.8, 0.8, -0.5);
         this.effects.addLabel(x, 1.85, z, 'STARVING', '#f0bf5b', 1.0);
@@ -1913,12 +2266,14 @@ export class ArenaView {
       this.lastEpisode = this.env.episodeId;
       this._buildResourceGroup();
       this._resetUnitViews();
+      this._resetBearViews();
       this._updateTerritory(true);
       this.effects.clear();
       if (this._visionOn) this.toggleVision(true);
     }
 
     this._syncUnits(dt);
+    this._syncBears(dt);
     this._syncStructures(dt);
     for (const view of this.resViews) this._updateResourceView(view, dt);
     this.effects.update(dt);
@@ -1932,6 +2287,9 @@ export class ArenaView {
     if (this._visionOn) {
       for (const view of this.units) {
         view.visionRing.visible = view.root.visible && view.deadT === 0;
+      }
+      for (const view of this.bears) {
+        view.visionRing.visible = view.root.visible && this.env.predators[view.id].alive;
       }
     }
 

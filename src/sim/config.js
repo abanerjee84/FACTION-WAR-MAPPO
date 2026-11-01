@@ -74,6 +74,27 @@ export const STRUCTURE_META = {
 export const MAX_STRUCTURES_PER_TEAM =
   STRUCTURE_META.tower.max + STRUCTURE_META.camp.max;
 
+// ---------------- predators ----------------
+// Bears are neutral NPCs: scripted, not learned, and they prey on whichever
+// legionary they can see — friend or foe alike. They roam the band around the
+// central ruin, stalk prey inside the same 7-unit vision the agents use, and
+// maul it at close range. A warband that brings a bear to 0 HP drives it off
+// the field; it comes back from the tree line after BEAR_RETURN seconds, so
+// the hazard can be answered but never removed for good. Set PREDATORS to 1
+// for a single bear.
+export const PREDATORS = 2;
+export const BEAR_HP = 300;
+export const BEAR_REGEN = 2.0;          // HP/s recovered while untouched
+export const BEAR_REGEN_DELAY = 4.0;    // seconds of peace before a bear mends
+export const BEAR_SPEED = 1.85;         // slower than MOVE_SPEED, so prey can outrun it
+export const BEAR_ATTACK_RANGE = 1.9;
+export const BEAR_DAMAGE = 24;
+export const BEAR_COOLDOWN = 1.2;
+export const BEAR_WANDER = 11;          // seconds between roaming decisions
+export const BEAR_RETURN = 42;          // seconds before a driven-off bear returns
+export const BEAR_BASE_CLEAR = 11.5;    // bears stay clear of the keeps and their spawn stacks
+export const BEAR_BAND = [4.5, 13.5];   // roaming band around the central ruin
+
 // Gold is melted into team-wide equipment tiers. Every living legionary gains
 // damage and maximum health, making gold a long-term military investment.
 export const MAX_FORGE = 4;
@@ -99,6 +120,11 @@ export const REWARD = {
   build: 0.9,
   forge: 1.6,
   campFood: 0.05,
+  // Predation is deliberately priced below fighting the other warband: damage
+  // dealt to a bear is worth less per point than damage dealt to a legionary,
+  // so hunting the bears is a side venture, not the main economy.
+  bearDamage: 0.022,
+  bearRepel: 1.4,
   victory: 10,
   defeat: -10,
 };
@@ -114,12 +140,15 @@ export const OBS_TERR = 3;
 export const OBS_BASE = 3;
 export const OBS_ECON = 5; // team food/wood/gold, forge tier, own structures
 export const OBS_ID = AGENTS_PER_TEAM;
+export const OBS_BEAR_K = 2; // nearest bears in view
+export const OBS_BEAR_F = 4; // dx, dz, distance, health fraction
 
 export const OBS_DIM =
   OBS_SELF +
   RESOURCE_TYPES.length * OBS_RES_K * OBS_RES_F +
   OBS_ALLY_K * OBS_ALLY_F +
   OBS_ENEMY_K * OBS_ENEMY_F +
+  OBS_BEAR_K * OBS_BEAR_F +
   OBS_TERR +
   OBS_BASE +
   OBS_ECON +
@@ -134,6 +163,7 @@ export const STATE_DIM =
   3 + // remaining resources
   3 + // living nodes
   4 + // forge tiers + structure counts (own / enemy)
+  PREDATORS * 4 + // bears: alive, position, health fraction
   2; // time phase
 
 export const TEAM_NAMES = ['Azure Compact', 'Ember Dominion'];

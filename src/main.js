@@ -44,6 +44,9 @@ const el = {
   balanceText: $('balance-text'),
   balanceBlue: $('balance-blue'),
   balanceRed: $('balance-red'),
+  predatorsAlive: $('predators-alive'),
+  preyTaken: $('prey-taken'),
+  bearRepelled: $('bear-repelled'),
   iteration: $('iteration'),
   steps: $('steps'),
   entropy: $('entropy'),
@@ -130,6 +133,8 @@ let endWinner = -1;
 let endSnapshot = null;
 let lastGatherLog = -99;
 let lastRegrowLog = -99;
+let lastMaulLog = -99;
+let lastBearLog = -99;
 
 const rosterRefs = [[], []];
 function buildRoster() {
@@ -204,12 +209,29 @@ function processEvents(events) {
     } else if (ev.type === 'death') {
       if (ev.starve) {
         logFeed(`A <b>${TEAM_SHORT[ev.team]}</b> legionary starved`, 'danger');
+      } else if (ev.predator) {
+        logFeed(`A <b>${TEAM_SHORT[ev.team]}</b> legionary was taken by a bear`, 'danger');
       } else {
         const by = ev.killer >= 0 ? ` to <b>${TEAM_SHORT[ev.killer]}</b>` : '';
         logFeed(`A <b>${TEAM_SHORT[ev.team]}</b> legionary falls${by}`, 'danger');
       }
     } else if (ev.type === 'starve') {
       logFeed(`<b>${TEAM_SHORT[ev.team]}</b> units are starving`, 'danger');
+    } else if (ev.type === 'maul') {
+      if (liveEnv.time - lastMaulLog > 2.2) {
+        lastMaulLog = liveEnv.time;
+        logFeed(`A bear mauls a <b>${TEAM_SHORT[ev.target]}</b> legionary`, 'danger');
+      }
+    } else if (ev.type === 'bearRepelled') {
+      logFeed(
+        `<b>${TEAM_SHORT[ev.team]}</b> drives off a bear`,
+        ev.team === 0 ? 'blue' : 'red',
+      );
+    } else if (ev.type === 'bearReturn') {
+      if (liveEnv.time - lastBearLog > 8) {
+        lastBearLog = liveEnv.time;
+        logFeed('A bear returns to the field', 'danger');
+      }
     } else if (ev.type === 'depleted') {
       logFeed(`${RESOURCE_META[ev.kind].label} node exhausted`);
     } else if (ev.type === 'regrow') {
@@ -230,8 +252,9 @@ function processEvents(events) {
       );
     } else if (ev.type === 'bolt') {
       if (Math.random() < 0.12) {
+        const foe = ev.target === -1 ? 'a bear' : TEAM_SHORT[ev.target];
         logFeed(
-          `<b>${TEAM_SHORT[ev.team]}</b> watchtower strikes for ${Math.round(ev.dmg)}`,
+          `<b>${TEAM_SHORT[ev.team]}</b> watchtower strikes ${foe} for ${Math.round(ev.dmg)}`,
           ev.team === 0 ? 'blue' : 'red',
         );
       }
@@ -276,12 +299,16 @@ function showVictory() {
 
   const side = valid ? winner : 0;
   const snap = endSnapshot ? endSnapshot[side] : liveEnv.teamSnapshot(side);
+  const hazard = endSnapshot
+    ? endSnapshot[0].preyLost + endSnapshot[1].preyLost
+    : liveEnv.predatorSnapshot().preyLost;
   el.victoryStats.innerHTML = [
     ['DURATION', fmtTime(liveEnv.time)],
     ['GATHERED', Math.floor(snap.gatheredTotal)],
     ['BUILDS', snap.builds],
     ['FORGE', ROMAN[snap.forge] || snap.forge],
     ['KILLS', snap.kills],
+    ['PREY LOST', hazard],
     ['SURVIVORS', snap.alive],
   ]
     .map(([label, value]) => `<div><b>${value}</b>${label}</div>`)
@@ -309,6 +336,8 @@ function resetLive() {
   simAccum = 0;
   lastGatherLog = -99;
   lastRegrowLog = -99;
+  lastMaulLog = -99;
+  lastBearLog = -99;
   el.feed.innerHTML = '';
   logFeed('A new warband takes the field');
 }
@@ -439,6 +468,12 @@ function updateHud() {
   el.balanceBlue.style.width = `${share0.toFixed(1)}%`;
   el.balanceRed.style.width = `${share1.toFixed(1)}%`;
   el.balanceText.textContent = `${share0.toFixed(0)} — ${share1.toFixed(0)}`;
+
+  // Bears are neutral, so the hazard row reports the whole field, not a faction.
+  const hazard = liveEnv.predatorSnapshot();
+  el.predatorsAlive.textContent = `${hazard.alive} / ${hazard.total}`;
+  el.preyTaken.textContent = hazard.preyLost;
+  el.bearRepelled.textContent = hazard.repelled;
 
   el.episode.textContent = String(liveEpisode).padStart(2, '0');
   el.clock.textContent = fmtTime(liveEnv.time);
