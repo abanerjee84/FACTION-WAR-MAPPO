@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0c100d" />
+    <title>Aetherfield — MAPPO Resource Wars</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=Spectral:ital,wght@0,400;0,500;0,600;1,400&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="world"></canvas>
+      <div class="scene-vignette"></div>
+      <div class="scene-grain"></div>
+
+      <header class="masthead">
+        <div class="brand">
+          <div class="brand-mark">
+            <span class="brand-mark-inner"></span>
+          </div>
+          <div class="brand-copy">
+            <h1>Aetherfield</h1>
+            <p>MAPPO <span>·</span> Resource Wars</p>
+          </div>
+        </div>
+
+        <div class="match-clock">
+          <div class="clock-label">EPISODE <span id="episode-num">01</span></div>
+          <div class="clock-time" id="match-time">00:00</div>
+          <div class="clock-sub" id="match-status">LIVE POLICY</div>
+        </div>
+
+        <div class="masthead-actions">
+          <button class="icon-btn" id="btn-recenter" title="Recenter camera">⌖</button>
+          <button class="icon-btn" id="btn-sound" title="Audio" style="display:none">♪</button>
+          <button class="btn btn-ghost" id="btn-pause">PAUSE</button>
+        </div>
+      </header>
+
+      <aside class="panel panel-left">
+        <div class="panel-heading">
+          <span>WAR COUNCIL</span>
+          <span class="panel-rule"></span>
+        </div>
+
+        <section class="faction-card faction-blue" id="faction-0">
+          <div class="faction-top">
+            <div class="faction-emblem blue">✦</div>
+            <div class="faction-title">
+              <h2>Azure Compact</h2>
+              <p><span class="alive-count" id="alive-0">6</span> / 6 LEGIONARIES</p>
+            </div>
+            <div class="win-badge"><span id="wins-0">0</span><small>WINS</small></div>
+          </div>
+          <div class="resource-strip">
+            <div class="res food" title="Food">
+              <i></i><span id="food-0">0</span>
+            </div>
+            <div class="res wood" title="Wood">
+              <i></i><span id="wood-0">0</span>
+            </div>
+            <div class="res gold" title="Gold">
+              <i></i><span id="gold-0">0</span>
+            </div>
+            <div class="res terr" title="Territory">
+              <i></i><span id="terr-0">0%</span>
+            </div>
+          </div>
+          <div class="faction-substats">
+            <span>GATHER <b id="gather-0">0</b></span>
+            <span>KILLS <b id="kills-0">0</b></span>
+            <span>REWARD <b id="reward-0">0.0</b></span>
+          </div>
+          <div class="faction-industry">
+            <span>FORGE <b id="forge-0">—</b></span>
+            <span>TOWERS <b id="towers-0">0</b></span>
+            <span>CAMPS <b id="camps-0">0</b></span>
+          </div>
+          <div class="roster" id="roster-0"></div>
+        </section>
+
+        <section class="faction-card faction-red" id="faction-1">
+          <div class="faction-top">
+            <div class="faction-emblem red">✧</div>
+            <div class="faction-title">
+              <h2>Ember Dominion</h2>
+              <p><span class="alive-count" id="alive-1">6</span> / 6 LEGIONARIES</p>
+            </div>
+            <div class="win-badge"><span id="wins-1">0</span><small>WINS</small></div>
+          </div>
+          <div class="resource-strip">
+            <div class="res food" title="Food">
+              <i></i><span id="food-1">0</span>
+            </div>
+            <div class="res wood" title="Wood">
+              <i></i><span id="wood-1">0</span>
+            </div>
+            <div class="res gold" title="Gold">
+              <i></i><span id="gold-1">0</span>
+            </div>
+            <div class="res terr" title="Territory">
+              <i></i><span id="terr-1">0%</span>
+            </div>
+          </div>
+          <div class="faction-substats">
+            <span>GATHER <b id="gather-1">0</b></span>
+            <span>KILLS <b id="kills-1">0</b></span>
+            <span>REWARD <b id="reward-1">0.0</b></span>
+          </div>
+          <div class="faction-industry">
+            <span>FORGE <b id="forge-1">—</b></span>
+            <span>TOWERS <b id="towers-1">0</b></span>
+            <span>CAMPS <b id="camps-1">0</b></span>
+          </div>
+          <div class="roster" id="roster-1"></div>
+        </section>
+
+        <div class="territory-balance">
+          <div class="balance-label">
+            <span>TERRITORIAL CONTROL</span>
+            <span id="balance-text">50 — 50</span>
+          </div>
+          <div class="balance-bar">
+            <div class="balance-blue" id="balance-blue"></div>
+            <div class="balance-red" id="balance-red"></div>
+          </div>
+        </div>
+      </aside>
+
+      <aside class="panel panel-right">
+        <div class="panel-heading">
+          <span>TRAINING TELEMETRY</span>
+          <span class="live-dot" id="train-dot"></span>
+        </div>
+
+        <div class="trainer-strip">
+          <div>
+            <small>ITERATION</small>
+            <b id="iteration">0</b>
+          </div>
+          <div>
+            <small>ENV STEPS</small>
+            <b id="steps">0</b>
+          </div>
+          <div>
+            <small>ENTROPY</small>
+            <b id="entropy">0.00</b>
+          </div>
+          <div>
+            <small>KL</small>
+            <b id="kl">0.000</b>
+          </div>
+        </div>
+
+        <div class="chart-block">
+          <div class="chart-head">
+            <span>REWARD / ENV STEP</span>
+            <span class="chart-legend">
+              <i class="dot blue"></i>AZURE <i class="dot red"></i>EMBER
+            </span>
+          </div>
+          <canvas class="chart" id="chart-reward" height="116"></canvas>
+        </div>
+
+        <div class="chart-block">
+          <div class="chart-head">
+            <span>POLICY LOSS</span>
+            <span class="chart-legend">
+              <i class="dot blue"></i>AZURE <i class="dot red"></i>EMBER
+            </span>
+          </div>
+          <canvas class="chart" id="chart-policy" height="86"></canvas>
+        </div>
+
+        <div class="chart-block">
+          <div class="chart-head">
+            <span>VALUE LOSS</span>
+            <span class="chart-legend">
+              <i class="dot blue"></i>AZURE <i class="dot red"></i>EMBER
+            </span>
+          </div>
+          <canvas class="chart" id="chart-value" height="86"></canvas>
+        </div>
+
+        <div class="balance-title">REWARD COMPOSITION <span>MEAN SHARE</span></div>
+        <div class="reward-bars" id="reward-bars">
+          <div class="reward-bar-row">
+            <span>GATHER</span>
+            <div class="bar-track"><div class="bar-fill gather" id="bar-gather"></div></div>
+            <b id="val-gather">0%</b>
+          </div>
+          <div class="reward-bar-row">
+            <span>TERRITORY</span>
+            <div class="bar-track"><div class="bar-fill territory" id="bar-territory"></div></div>
+            <b id="val-territory">0%</b>
+          </div>
+          <div class="reward-bar-row">
+            <span>COMBAT</span>
+            <div class="bar-track"><div class="bar-fill combat" id="bar-combat"></div></div>
+            <b id="val-combat">0%</b>
+          </div>
+          <div class="reward-bar-row">
+            <span>SURVIVAL</span>
+            <div class="bar-track"><div class="bar-fill survival" id="bar-survival"></div></div>
+            <b id="val-survival">0%</b>
+          </div>
+          <div class="reward-bar-row">
+            <span>INDUSTRY</span>
+            <div class="bar-track"><div class="bar-fill industry" id="bar-industry"></div></div>
+            <b id="val-industry">0%</b>
+          </div>
+        </div>
+
+        <div class="algo-grid">
+          <div><small>N / TEAM</small><b>6</b></div>
+          <div><small>WORLDS</small><b>4</b></div>
+          <div><small>ROLLOUT T</small><b>96</b></div>
+          <div><small>γ / λ</small><b>.99 / .95</b></div>
+          <div><small>CLIP ε</small><b>.20</b></div>
+          <div><small>EPOCHS</small><b>3</b></div>
+        </div>
+      </aside>
+
+      <div class="event-feed" id="event-feed"></div>
+
+      <div class="controls">
+        <div class="control-group">
+          <span class="control-label">SIM SPEED</span>
+          <div class="segmented" id="speed-control">
+            <button data-speed="0.5">0.5×</button>
+            <button data-speed="1" class="active">1×</button>
+            <button data-speed="2">2×</button>
+            <button data-speed="4">4×</button>
+          </div>
+        </div>
+        <div class="control-group toggles">
+          <button class="btn btn-toggle active" id="btn-territory">TERRITORY</button>
+          <button class="btn btn-toggle" id="btn-vision">VISION</button>
+          <button class="btn btn-toggle active" id="btn-train">TRAINING</button>
+        </div>
+      </div>
+
+      <div class="hint">DRAG TO ORBIT <span>·</span> RIGHT-DRAG TO PAN <span>·</span> SCROLL TO ZOOM</div>
+
+      <div class="victory-overlay" id="victory-overlay">
+        <div class="victory-crest" id="victory-crest">✦</div>
+        <div class="victory-kicker">EPISODE CONCLUDED</div>
+        <h2 id="victory-title">Azure Compact Triumphs</h2>
+        <p id="victory-sub">The Ember Dominion has fallen.</p>
+        <div class="victory-stats" id="victory-stats"></div>
+        <div class="victory-timer">NEXT BATTLE IN <span id="victory-countdown">3</span></div>
+      </div>
+
+      <div class="boot-overlay" id="boot-overlay">
+        <div class="boot-crest">✦</div>
+        <h2>Aetherfield</h2>
+        <p>Raising the banners<span class="boot-dots">...</span></p>
+        <div class="boot-bar"><div id="boot-bar-fill"></div></div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

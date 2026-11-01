@@ -1,0 +1,22 @@
+{
+  "name": "aetherfield-mappo",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Aetherfield — a MAPPO resource-war simulation",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.js",
+    "capture": "node scripts/capture.mjs",
+    "media": "node scripts/media.mjs"
+  },
+  "dependencies": {
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.64.1",
+    "vite": "^5.4.10"
+  }
+}
