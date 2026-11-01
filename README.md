@@ -215,6 +215,7 @@ to keep the dark scene and the bloom readable; `docs/assets/raw/` is git-ignored
 ## Project layout
 
 ```
+LICENSE               MIT (see LICENSE)
 index.html            HUD markup (arena canvas, faction council, telemetry, overlays)
 src/main.js           spectator match, boot gate, victory flow, worker wiring, speed/toggle controls
 src/render/arena.js   Three.js scene, OrbitControls, territory and vision overlays
@@ -239,4 +240,10 @@ docs/assets/          shipped README media
 - Training is pure JavaScript with hand-written backprop — the point is legibility of the MAPPO loop,
   not throughput. Iterations are synchronous inside the worker; the main thread never blocks.
 - There is no checkpoint save/load yet; refreshing the page restarts training from scratch.
-- No license file yet — all rights reserved until one is added.
+
+---
+
+## License
+
+Released under the **MIT License** — see [`LICENSE`](LICENSE). The README media in `docs/assets/`
+(captured from this project's own render) is covered by the same license.
