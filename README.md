@@ -113,9 +113,9 @@ decisive mid-field fight plus the territory it secures:
 
 ## Observations and MAPPO
 
-- **Per-agent observation**: `OBS_DIM = 103` — self state (6), visible resource nodes (3 × 3 × 5),
+- **Per-agent observation**: `OBS_DIM = 109` — self state (6), visible resource nodes (3 × 3 × 5),
   allies (4 × 4), enemies (5 × 5), territory (3), base (3), team economy (5), own agent id (6).
-- **Global state for the critic**: `STATE_DIM = 90` — both rosters (72), stockpiles, lifetime gathered,
+- **Global state for the critic**: `STATE_DIM = 95` — both rosters (72), stockpiles, lifetime gathered,
   territory shares, alive counts, remaining resources, living nodes, forge tiers + structure counts,
   time phase.
 - **Policy**: MLP with a 64-unit hidden layer, trained by hand-written forward/backward passes with
