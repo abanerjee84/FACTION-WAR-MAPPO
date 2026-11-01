@@ -34,8 +34,9 @@ export const ACTIONS = 13;
 export const RESOURCE_TYPES = ['food', 'wood', 'gold'];
 export const RESOURCE_META = {
   // regrow: seconds before a spent node returns. respawn: fraction of capacity
-  // restored. Food is the lifeblood of a warband, so it comes back fastest.
-  food: { max: 90, rate: 9, regrow: 14, respawn: 1.0, label: 'Food', color: '#9bcf6a' },
+  // restored. Food is the lifeblood of a warband, so it still comes back
+  // fastest of the three — but not instantly, so foraging has to be planned.
+  food: { max: 90, rate: 9, regrow: 18, respawn: 0.85, label: 'Food', color: '#9bcf6a' },
   wood: { max: 140, rate: 8, regrow: 30, respawn: 0.85, label: 'Wood', color: '#c2905c' },
   gold: { max: 70, rate: 6, regrow: 48, respawn: 0.7, label: 'Gold', color: '#f3c964' },
 };

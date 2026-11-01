@@ -47,7 +47,7 @@ critic sees the whole battlefield state while actors see only what a single legi
 
 | Resource | Node capacity | Harvest rate | Regrow | Respawn fraction | Used for |
 | --- | --- | --- | --- | --- | --- |
-| Food | 90 | 9/s | 14 s | 1.00 | eating, field camps |
+| Food | 90 | 9/s | 18 s | 0.85 | eating, field camps |
 | Wood | 140 | 8/s | 30 s | 0.85 | watchtowers, field camps |
 | Gold | 70 | 6/s | 48 s | 0.70 | the forge |
 
