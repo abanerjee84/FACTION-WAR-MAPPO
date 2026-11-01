@@ -39,6 +39,7 @@ const el = {
   forge: [$('forge-0'), $('forge-1')],
   towers: [$('towers-0'), $('towers-1')],
   camps: [$('camps-0'), $('camps-1')],
+  spread: [$('spread-0'), $('spread-1')],
   reward: [$('reward-0'), $('reward-1')],
   roster: [$('roster-0'), $('roster-1')],
   balanceText: $('balance-text'),
@@ -453,6 +454,7 @@ function updateHud() {
     el.forge[team].textContent = ROMAN[s.forge] || s.forge;
     el.towers[team].textContent = s.structures.tower;
     el.camps[team].textContent = s.structures.camp;
+    el.spread[team].textContent = Math.round(s.formation);
     el.reward[team].textContent = s.reward.toFixed(1);
     for (let i = 0; i < AGENTS_PER_TEAM; i++) {
       const agent = liveEnv.agents[team][i];

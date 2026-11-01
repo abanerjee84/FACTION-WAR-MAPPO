@@ -62,6 +62,7 @@ import {
   OBS_ECON,
   OBS_ID,
   STATE_DIM,
+  HULL_SCALE,
   DIRS,
 } from './config.js';
 
@@ -78,6 +79,41 @@ const BASE_OFFSET = TERR_OFFSET + OBS_TERR;
 const ECON_OFFSET = ID_OFFSET - OBS_ECON;
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+
+// Area of the convex hull of a set of points (Andrew's monotone chain, then the
+// shoelace sum). Fewer than three surviving legionaries enclose nothing, and a
+// squad that lines up or collapses to a point also measures zero.
+function convexHullArea(points) {
+  if (points.length < 3) return 0;
+  const pts = points.slice().sort((a, b) => (a[0] === b[0] ? a[1] - b[1] : a[0] - b[0]));
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+
+  const lower = [];
+  for (const p of pts) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) {
+      lower.pop();
+    }
+    lower.push(p);
+  }
+  const upper = [];
+  for (let i = pts.length - 1; i >= 0; i--) {
+    const p = pts[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) {
+      upper.pop();
+    }
+    upper.push(p);
+  }
+
+  const hull = lower.slice(0, -1).concat(upper.slice(0, -1));
+  if (hull.length < 3) return 0;
+  let area = 0;
+  for (let i = 0; i < hull.length; i++) {
+    const [x1, z1] = hull[i];
+    const [x2, z2] = hull[(i + 1) % hull.length];
+    area += x1 * z2 - x2 * z1;
+  }
+  return Math.abs(area) / 2;
+}
 
 function blankParts() {
   return { gather: 0, territory: 0, combat: 0, survival: 0, industry: 0 };
@@ -1099,6 +1135,15 @@ export class BattleEnv {
     ];
   }
 
+  // How much ground a faction actually occupies: the convex hull of its living
+  // legionaries, in square field units. Near zero means the squad is huddled or
+  // strung along a line; a few hundred means it has broken into solo bands.
+  _formationArea(team) {
+    const pts = [];
+    for (const a of this.agents[team]) if (a.alive) pts.push([a.x, a.z]);
+    return convexHullArea(pts);
+  }
+
   /* ---------------- observations (local, fog-limited) ---------------- */
 
   getObs(team) {
@@ -1335,6 +1380,8 @@ export class BattleEnv {
     out[o++] = (cells - owned) / cells;
     out[o++] = this.aliveCounts()[team] / AGENTS_PER_TEAM;
     out[o++] = this.aliveCounts()[1 - team] / AGENTS_PER_TEAM;
+    out[o++] = this._formationArea(team) / HULL_SCALE;
+    out[o++] = this._formationArea(1 - team) / HULL_SCALE;
     for (const type of RESOURCE_TYPES) {
       let rem = 0;
       for (const r of this.resources) if (r.type === type) rem += r.alive ? r.amount : 0;
@@ -1362,6 +1409,7 @@ export class BattleEnv {
 
   teamSnapshot(team) {
     const stats = this.teamStats[team];
+    const formation = this._formationArea(team);
     return {
       stock: { ...stats.stock },
       gathered: { ...stats.gathered },
@@ -1373,6 +1421,10 @@ export class BattleEnv {
       territory: this.territoryCount[team],
       territoryShare: this.territoryCount[team] / (CELLS * CELLS),
       alive: this.aliveCounts()[team],
+      // Square units enclosed by the living squad's convex hull: how clustered
+      // or solo the faction currently is.
+      formation,
+      formationShare: formation / HULL_SCALE,
       forge: stats.forge,
       builds: stats.builds,
       generatedFood: stats.generatedFood,

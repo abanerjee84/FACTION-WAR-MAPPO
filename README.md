@@ -9,7 +9,7 @@ recording.
 ![Aetherfield live match — Azure Compact (✦) vs Ember Dominion (✧), territory overlay on, training live](docs/assets/hero.gif)
 
 > The GIF is captured from the live page via a Chrome DevTools Protocol screencast at the pace it was
-> recorded (45 frames over 4.95 s). The match is running at 4× speed in this clip.
+> recorded (43 frames over 4.93 s). The match is running at 4× speed in this clip.
 > A lossless version is available as [`docs/assets/demo.mp4`](docs/assets/demo.mp4) — GitHub does not
 > inline-play video in markdown, so it is a link.
 
@@ -144,15 +144,38 @@ either faction, and bear rewards land in the same combat bucket as faction kills
 
 - **Per-agent observation**: `OBS_DIM = 117` — self state (6), visible resource nodes (3 × 3 × 5),
   allies (4 × 4), enemies (5 × 5), bears (2 × 4), territory (3), base (3), team economy (5), own agent id (6).
-- **Global state for the critic**: `STATE_DIM = 103` — both rosters (72), stockpiles, lifetime gathered,
-  territory shares, alive counts, remaining resources, living nodes, forge tiers + structure counts,
-  bears (2 × 4), time phase.
+- **Global state for the critic**: `STATE_DIM = 105` — both rosters (72), stockpiles, lifetime gathered,
+  territory shares, alive counts, formation hull area (2), remaining resources, living nodes, forge
+  tiers + structure counts, bears (2 × 4), time phase.
 - **Policy**: MLP with a 64-unit hidden layer, trained by hand-written forward/backward passes with
   Adam. Softmax is masked; the PPO surrogate is clipped, and the value loss is clipped to the same
   window.
 - **Critic**: MLP with a 96-unit hidden layer on the global state (MAPPO's "shared critic" pattern).
 - **Advantage estimation**: GAE(λ), with terminal flags masked out so episode boundaries do not leak
   bootstrapped values between matches. Advantages are normalized over living agents only.
+
+### Formation — does a faction cluster or go solo?
+
+The critic gets one extra pair of features: the area of the **convex hull** of each squad's *living*
+legionary positions, expressed as a fraction of the field (1296 square units). One number per faction
+summarises the shape of the whole squad:
+
+| Squad shape | Hull area | State value |
+| --- | --- | --- |
+| Huddled on its spawn ring | ~11–15 units² | ~0.01 |
+| Tight knot, a couple of units apart | ~2 units² | ~0.001 |
+| Strung along a line (collinear) | 0 | 0 |
+| Scattered into solo bands across the mid-field | ~700 units² | ~0.55 |
+| Fewer than three survivors | 0 | 0 |
+
+Dead legionaries are excluded, so a faction that loses its scattered members reads as clustered again.
+Degenerate shapes are handled rather than faked: the hull is Andrew's monotone chain plus a shoelace
+sum, which encloses nothing for one or two survivors and for collinear squads.
+
+It is a **state** feature, not an observation — agents never see the hull, only the critic does, so it
+is context for the value function rather than a reward. The faction panel prints the same area as
+`SPREAD` in square field units, so you can watch each warband drift between clustering and dispersion
+as training progresses.
 
 | Hyperparameter | Value | Meaning |
 | --- | --- | --- |
@@ -187,8 +210,9 @@ Vision overlay — the radius an agent actually perceives (amber rings are the b
 
 ![Vision radii over the field](docs/assets/vision.png)
 
-Faction panel — stockpiles, territory share, kills, forge tier, structures, per-legionary roster, and
-the field-hazard strip for bears on the field, legionaries taken, and bears driven off:
+Faction panel — stockpiles, territory share, kills, forge tier, structures, formation spread (the
+convex-hull area of the living squad), per-legionary roster, and the field-hazard strip for bears on
+the field, legionaries taken, and bears driven off:
 
 ![Faction council panel](docs/assets/council.png)
 
@@ -208,7 +232,7 @@ End of match (Ember Dominion wiped out):
 ```bash
 npm install
 npm run dev        # http://127.0.0.1:5173
-npm test           # 21 node:test assertions on economy, masks, predators, PPO
+npm test           # 25 node:test assertions on economy, formation, predators, masks, PPO
 ```
 
 On Windows, `START.bat` installs dependencies on first run and launches the server.
@@ -253,14 +277,14 @@ src/render/arena.js   Three.js scene, OrbitControls, territory and vision overla
 src/render/effects.js hit sparks, bloom, muzzle effects
 src/render/charts.js  reward / policy / value line charts
 src/sim/config.js     every environment and MAPPO constant (the tables above)
-src/sim/env.js        BattleEnv: movement, harvesting, combat, bears, structures, territory, rewards, masks
+src/sim/env.js        BattleEnv: movement, harvesting, combat, bears, structures, territory, formation hull, rewards, masks
 src/sim/policy.js     Actor/Critic MLPs, manual backprop, Adam, masked softmax, clipped PPO losses
 src/sim/mappo.js      rollout, GAE with terminal masks, alive-masked advantage norm, PPO epochs
 src/sim/worker.js     4 worlds, per-iteration weight transfer, 12 ms scheduling
 src/sim/rng.js        deterministic seeded RNG (same seed → same battlefield)
 scripts/capture.mjs   Playwright + CDP screencast capture
 scripts/media.mjs     GIF / MP4 / still encoding pipeline
-tests/                economy, predator, and PPO invariants (node --test)
+tests/                economy, formation, predator, and PPO invariants (node --test)
 docs/assets/          shipped README media
 ```
 

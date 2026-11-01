@@ -160,11 +160,19 @@ export const STATE_DIM =
   3 + // lifetime gathered
   3 + // territory shares (own / enemy / neutral)
   2 + // alive counts
+  2 + // formation: convex-hull area of each squad (own / enemy)
   3 + // remaining resources
   3 + // living nodes
   4 + // forge tiers + structure counts (own / enemy)
   PREDATORS * 4 + // bears: alive, position, health fraction
   2; // time phase
+
+// Formation features are the convex hull of a squad's living legionaries, as a
+// fraction of the field's area (1296 square units). Measured on a live match: a
+// squad huddled on its spawn ring reads ~0.004, one scattered into solo bands
+// across the mid-field reads ~0.55. That is what lets the critic tell clustering
+// from dispersion without being handed the six positions one at a time.
+export const HULL_SCALE = WORLD * WORLD;
 
 export const TEAM_NAMES = ['Azure Compact', 'Ember Dominion'];
 export const TEAM_SHORT = ['AZURE', 'EMBER'];
